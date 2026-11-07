@@ -473,7 +473,7 @@ function render0(){
 }
 function renderStep(){
   const se=sess();const idx=S.cur+1;
-  $('#sub').textContent=`${R.school?R.school+' · ':''}${S.name} · Séance ${idx} · ${fdate(se.date)} · ${activeTeams().length} équipes présentes`;
+  {const nE=S.students.length,nT=S.teams.length,nP=activeTeams().length;$('#sub').textContent=!nE?'Bienvenue ! Commencez par inscrire votre classe dans l’onglet Classe.':!nT?`${R.school?R.school+' · ':''}${S.name} · ${nE} élève${nE>1?'s':''} inscrit${nE>1?'s':''} · équipes à former dans l’onglet Classe`:`${R.school?R.school+' · ':''}${S.name} · séance ${idx} du ${fdate(se.date)} · ${nP} équipe${nP>1?'s':''} présente${nP>1?'s':''}`;}
   let h='';
   if(se.step<0){h=`<button class="btn go" data-action="startplan" ${se.plan.length?'':'disabled'}>Démarrer la séance</button>`}
   else if(se.step>=se.plan.length){h=`<div class="stepnow"><small>Séance</small><b>Terminée</b></div><button class="btn go" data-action="resume" ${se.plan.length?'':'disabled'}>Reprendre la séance</button>`}
