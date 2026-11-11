@@ -2,7 +2,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Score Parlant Basket</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@500;600;700;800&display=swap">
 <style>
 /* Layout : poste de pilotage de la séquence — bandeau (séance + étape en cours + minuteur), onglets, contenus en cartes. Fond clair très contrasté pour la projection (thème unique). */
@@ -642,12 +641,11 @@ const TABS=[['seance','Séance'],['classe','Classe'],['fil','Fil rouge'],['bilan
 let RENDERING=false,AGAIN=false;
 function render(){if(RENDERING){AGAIN=true;return}RENDERING=true;try{render0()}finally{RENDERING=false}if(AGAIN){AGAIN=false;setTimeout(render,0)}}
 function render0(){
-  if(T.gate&&SB_ON&&!SYNC.user){$('#tabs').innerHTML='';$('#stepbox').innerHTML='';$('#sub').textContent='Espace enseignant';$('#main').innerHTML=vGate();return}
   cleanBilan();
   const se=sess();const curTab=se.step>=0&&se.plan[se.step]?STEP_TYPES[se.plan[se.step].type].tab:null;
   $('#tabs').innerHTML=TABS.map(([k,l])=>`<button role="tab" data-action="tab" data-k="${k}" aria-selected="${S.tab===k}" class="${curTab===k&&S.tab!==k?'cur':''}">${l}</button>`).join('');
   renderStep();
-  {const box=$('#stepbox');if(SB_ON&&SYNC.user&&box)box.insertAdjacentHTML('afterbegin',`<span id="syncdot" class="syncdot ${SYNC.state}" title="${esc(SYNC.pseudo)}">${syncLabel()}</span>`)}
+  {const box=$('#stepbox');if(SB_ON&&S.online&&box){const st=(SYNC.state[S.id]||{st:'ok'}).st;box.insertAdjacentHTML('afterbegin',`<span id="syncdot" class="syncdot ${st}">${stLabel(st)}</span>`)}}
   const v={seance:vSeance,classe:vClasse,fil:vFil,bilan:vBilan,ateliers:vAteliers,matchs:vMatchs,eval:vEval,progres:vProgres}[S.tab]||vSeance;
   let h='';
   if(S.example)h+=`<div class="banner ex" style="margin-bottom:16px">Données d’exemple (élèves et résultats fictifs) pour découvrir l’application. <button class="btn small" data-action="clearex">${T.confirm==='clearex'?'Confirmer : tout effacer':'Effacer l’exemple et commencer'}</button></div>`;
@@ -702,7 +700,7 @@ function vSeance(){
     <div class="row" style="margin-top:8px">${Object.entries(STEP_TYPES).map(([k,t])=>`<button class="btn small" data-action="addstep" data-k="${k}">＋ ${t.label}</button>`).join('')}<button class="btn small danger" data-action="clearplan">Vider le déroulé</button></div></div>
     <p class="note">L’alternance proposée par l’article : fil rouge pour situer chaque équipe, ateliers ciblés sur ses besoins, matchs pour réinvestir, puis retour au fil rouge pour mesurer les progrès.</p>
   </section></div>
-  <div class="stack">${accountCard()}<section class="card"><h2 class="t">Présences (${present}/${S.students.length})</h2>
+  <div class="stack"><section class="card"><h2 class="t">Présences (${present}/${S.students.length})</h2>
     ${S.students.length?`<p class="note" style="margin:0 0 10px">Touchez un prénom pour le marquer absent ou présent.</p><div class="row">${S.students.map(s=>`<button class="chip ${isPresent(s.id)?'on':'off'}" data-action="presence" data-s="${s.id}" aria-pressed="${isPresent(s.id)}">${esc(s.name)}</button>`).join('')}</div>`
     :`<p class="muted">Aucun élève. Inscrivez la classe dans l’onglet Classe.</p><div class="row"><button class="btn primary" data-action="tab" data-k="classe">Inscrire les élèves</button><button class="btn" data-action="sample">Charger un exemple</button></div>`}
   </section>
@@ -725,8 +723,8 @@ function vClasse(){
   const nF=S.students.filter(s=>s.sex==='F').length,nG=S.students.filter(s=>s.sex==='G').length,nU=S.students.length-nF-nG;
   const size=S.settings.teamSize||3,mixed=S.settings.mixed!==false;
   const pickS=T.pick?S.students.find(x=>x.id===T.pick):null;
-  let h=`<section class="card" style="margin-bottom:18px"><div class="row"><label for="sel-class" style="font-weight:800">Classe</label>
-    <select id="sel-class" data-field="cc">${R.classes.map((c,i)=>`<option value="${i}" ${i===R.cc?'selected':''}>${esc(c.name)} (${c.students.length} élèves)</option>`).join('')}</select>
+  let h=onlineCard()+`<section class="card" style="margin-bottom:18px"><div class="row"><label for="sel-class" style="font-weight:800">Classe</label>
+    <select id="sel-class" data-field="cc">${R.classes.map((c,i)=>`<option value="${i}" ${i===R.cc?'selected':''}>${esc(c.name)} (${c.students.length} élèves)${c.online?' · en ligne':''}</option>`).join('')}</select>
     <input type="text" id="cname" value="${esc(S.name)}" data-field="cname" aria-label="Nom de la classe" style="width:180px">
     <button class="btn" data-action="newclass">Nouvelle classe</button>
     ${R.classes.length>1?`<button class="btn small danger" data-action="delclass">${T.confirm==='delclass'?'Confirmer : supprimer '+esc(S.name):'Supprimer cette classe'}</button>`:''}</div>
@@ -1122,20 +1120,24 @@ function commit(){save();render()}
 
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-action]');if(!b||b.tagName==='INPUT'||b.tagName==='SELECT')return;
-  const a=b.dataset.action,se=sess();const keep=['logout','treset','tundo','resched','nextround','delclass','clearex','newsess','delsess','restore','delstu','randteams','delteam','resetfil','nextdef','mcancel','mdel','evabort','evdel'];
+  const a=b.dataset.action,se=sess();const keep=['forget','treset','tundo','resched','nextround','delclass','clearex','newsess','delsess','restore','delstu','randteams','delteam','resetfil','nextdef','mcancel','mdel','evabort','evdel'];
   const prevConfirm=T.confirm;if(!keep.includes(a))T.confirm=null;
   const two=k=>{if(prevConfirm!==k){T.confirm=k;return false}T.confirm=null;return true};
   if(a!=='backup'&&a!=='copyprog')T.copied='';
   switch(a){
     case 'tab':S.tab=b.dataset.k;T.fiche=null;break;
-    case 'login':authDo('in');return;
-    case 'signup':authDo('up');return;
-    case 'nogate':T.gate=false;try{localStorage.setItem('score-parlant-nogate','1')}catch(_){}break;
-    case 'logout':if(!two('logout'))break;logout();return;
+    case 'onshare':T.onMode='share';T.onMsg='';break;
+    case 'onopen':T.onMode='open';T.onMsg='';break;
+    case 'ondelmode':T.onMode='del';T.onMsg='';break;
+    case 'oncancel':T.onMode=null;T.onMsg='';T.onVals=null;break;
+    case 'doshare':shareClass();return;
+    case 'doopen':openClass();return;
+    case 'dodelete':deleteOnline();return;
+    case 'forget':if(!two('forget'))break;forgetClass();return;
     case 'sample':loadSample();break;
     case 'clearex':if(!two('clearex'))break;R.classes.splice(R.cc,1);if(!R.classes.length)R.classes.push(newClass('Ma classe'));useClass(0);break;
     case 'newclass':R.classes.push(newClass('Nouvelle classe'));useClass(R.classes.length-1);S.tab='classe';break;
-    case 'delclass':if(!two('delclass'))break;R.classes.splice(R.cc,1);if(!R.classes.length)R.classes.push(newClass('Ma classe'));useClass(0);break;
+    case 'delclass':if(S.online){T.onMode='del';break}if(!two('delclass'))break;R.classes.splice(R.cc,1);if(!R.classes.length)R.classes.push(newClass('Ma classe'));useClass(0);break;
     case 'export':{try{const bl=new Blob([JSON.stringify(R)],{type:'application/json'});const u=URL.createObjectURL(bl);const a2=document.createElement('a');a2.href=u;a2.download='score-parlant-sauvegarde-'+today()+'.json';document.body.appendChild(a2);a2.click();a2.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);T.copied='Sauvegarde enregistrée dans vos téléchargements.'}catch(_){T.copied='Enregistrement impossible : utilisez « Copier les données ».'}break}
     case 'importok':if(T.pending){R=T.pending;T.pending=null;useClass(Math.min(R.cc||0,R.classes.length-1))}break;
     case 'importno':T.pending=null;break;
@@ -1217,7 +1219,7 @@ document.addEventListener('change',e=>{
   const el=e.target,f=el.dataset.field;if(!f)return;const se=sess();
   if(f==='cur'){S.cur=Number(el.value);T.fiche=null}
   else if(f==='cc'){useClass(Number(el.value))}
-  else if(f==='cname'){if(el.value.trim())S.name=el.value.trim()}
+  else if(f==='cname'){if(el.value.trim()&&!S.online)S.name=el.value.trim()}
   else if(f==='school'){R.school=el.value.trim()}
   else if(f==='mixed'){S.settings.mixed=el.checked}
   else if(f==='csvfile'){const file=el.files&&el.files[0];if(!file)return;const rd=(enc)=>{const fr=new FileReader();fr.onload=()=>{const txt=String(fr.result);if(enc==='utf-8'&&txt.includes('\uFFFD')){rd('windows-1252');return}T.importMsg=importPronote(txt);commit()};fr.readAsText(file,enc)};rd('utf-8');return}
@@ -1244,133 +1246,134 @@ document.addEventListener('dragover',e=>{const z=e.target.closest&&e.target.clos
 document.addEventListener('drop',e=>{const z=e.target.closest&&e.target.closest('.tzone');if(!z)return;e.preventDefault();const sid=e.dataTransfer.getData('text/plain');if(!sid)return;
   const onChip=e.target.closest('.mchip');if(onChip&&onChip.dataset.s!==sid)swapStudents(sid,onChip.dataset.s);else moveStudent(sid,z.dataset.t);T.pick=null;commit()});
 setInterval(tick,1000);
-/* ---------- Comptes enseignants et synchronisation entre écrans (Supabase) ---------- */
-const SB_URL='SB_URL_PLACEHOLDER', SB_KEY='SB_KEY_PLACEHOLDER';
-const SB_ON=!!(SB_URL&&SB_KEY&&!SB_URL.includes('PLACEHOLDER')&&window.supabase);
-const SYNC={client:null,user:null,pseudo:'',synced:{},state:'local',timer:null,chan:null,pendingRender:false,err:''};
-const SKEY='score-parlant-sync-v1';
+/* ---------- Classes partagées en ligne (Supabase) : une classe = établissement + nom + code secret ---------- */
+const SB_URL='https://tiwcfxdpboqwflzlnytn.supabase.co', SB_KEY='sb_publishable_Hez82ckhGIDW-2Lgabr45Q_7ZgUOIad';
+const SB_ON=!!(SB_URL&&SB_KEY&&!SB_URL.includes('PLACEHOLDER'));
+const SYNC={synced:{},since:{},timer:null,poll:null,state:{},busy:false,pendingRender:false};
+const SKEY='score-parlant-sync-v2';
 function ensureIds(){R.classes.forEach(c=>{if(!c.id)c.id=sid('c')})}
-function flatten(root){
-  const it={};ensureIds();
-  it['meta']={school:root.school||'',order:root.classes.map(c=>c.id)};
-  root.classes.forEach(c=>{const cid=c.id;
-    const {sessions,tour,cur,tab,...base}=c;base.sessOrder=sessions.map(s=>s.id);it['class:'+cid]=base;
-    if(tour){it['tour:'+cid]={started:!!tour.started,pools:(tour.pools||[]).map(({matches,clock,...p})=>p)};(tour.pools||[]).forEach(p=>{it['pool:'+cid+':'+p.id]={matches:p.matches||[],clock:p.clock||{}}})}
-    sessions.forEach(se=>{const {fil,bilan,evals,...rest}=se;rest.fil={sched:fil.sched||null,ri:fil.ri||0};it['sess:'+cid+':'+se.id]=rest;
-      const g={};(fil.recs||[]).forEach(r=>{const k='recs:'+cid+':'+se.id+':'+r.att+':'+r.def+':'+(r.k||'');(g[k]=g[k]||[]).push(r)});Object.assign(it,g);
-      Object.entries(bilan||{}).forEach(([tid,b])=>{it['bil:'+cid+':'+se.id+':'+tid]=b});
-      (evals||[]).forEach(e=>{it['ev:'+cid+':'+se.id+':'+e.id]=e});
-    });
+const normTxt=t=>String(t||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+const slugOf=(school,cls)=>normTxt(school)+'|'+normTxt(cls);
+async function rpc(fn,args){
+  const h={'Content-Type':'application/json','apikey':SB_KEY};if(SB_KEY.startsWith('eyJ'))h.Authorization='Bearer '+SB_KEY;
+  const r=await fetch(SB_URL.replace(/\/$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',headers:h,body:JSON.stringify(args)});
+  const txt=await r.text();let d=null;try{d=txt?JSON.parse(txt):null}catch(e){d=txt}
+  if(!r.ok){const m=(d&&d.message)||('Erreur '+r.status);const e=new Error(m);e.code=m;throw e}
+  return d;
+}
+const ERRS={CODE_FAUX:'Code incorrect pour cette classe.',CLASSE_INCONNUE:'Aucune classe en ligne avec cet établissement et ce nom. Vérifiez l’orthographe.',CLASSE_EXISTE:'Une classe porte déjà ce nom dans cet établissement. Choisissez un autre nom (par exemple « 3e A – EPS Cédric »), ou ouvrez-la avec son code.',CODE_COURT:'Le code doit faire au moins 4 caractères.'};
+const errTxt=e=>ERRS[e.code]||('Connexion impossible. Vérifiez internet. ('+e.message+')');
+function flattenClass(c){
+  const it={};const cid=c.id;
+  const {sessions,tour,cur,tab,online,...base}=c;base.sessOrder=sessions.map(s=>s.id);it['class:'+cid]=base;
+  if(tour){it['tour:'+cid]={started:!!tour.started,pools:(tour.pools||[]).map(({matches,clock,...p})=>p)};(tour.pools||[]).forEach(p=>{it['pool:'+cid+':'+p.id]={matches:p.matches||[],clock:p.clock||{}}})}
+  sessions.forEach(se=>{const {fil,bilan,evals,...rest}=se;rest.fil={sched:fil.sched||null,ri:fil.ri||0};it['sess:'+cid+':'+se.id]=rest;
+    (fil.recs||[]).forEach(r=>{const k='recs:'+cid+':'+se.id+':'+r.att+':'+r.def+':'+(r.k||'');(it[k]=it[k]||[]).push(r)});
+    Object.entries(bilan||{}).forEach(([tid,b])=>{it['bil:'+cid+':'+se.id+':'+tid]=b});
+    (evals||[]).forEach(e=>{it['ev:'+cid+':'+se.id+':'+e.id]=e});
   });
   return it;
 }
-function unflatten(it,prev){
-  const meta=it['meta']||{order:[]};const classes={};
-  Object.keys(it).filter(k=>k.startsWith('class:')).forEach(k=>{const c=JSON.parse(JSON.stringify(it[k]));c.id=c.id||k.slice(6);c.sessions=[];classes[c.id]=c});
-  const sess={};
-  Object.keys(it).filter(k=>k.startsWith('sess:')).forEach(k=>{const [,cid,sidv]=k.split(':');const se=JSON.parse(JSON.stringify(it[k]));se.fil=Object.assign({sched:null,ri:0},se.fil||{});se.fil.recs=[];se.bilan={};se.evals=[];sess[cid+':'+sidv]=se});
-  Object.keys(it).sort().forEach(k=>{const p=k.split(':');const v=it[k];
-    if(p[0]==='recs'){const se=sess[p[1]+':'+p[2]];if(se)se.fil.recs.push(...JSON.parse(JSON.stringify(v)))}
-    else if(p[0]==='bil'){const se=sess[p[1]+':'+p[2]];if(se)se.bilan[p[3]]=JSON.parse(JSON.stringify(v))}
-    else if(p[0]==='ev'){const se=sess[p[1]+':'+p[2]];if(se)se.evals.push(JSON.parse(JSON.stringify(v)))}});
-  Object.values(classes).forEach(c=>{const order=c.sessOrder||[];const mine=Object.keys(sess).filter(k=>k.startsWith(c.id+':'));
-    mine.sort((a,b)=>{const ia=order.indexOf(a.split(':')[1]),ib=order.indexOf(b.split(':')[1]);return (ia<0?1e9:ia)-(ib<0?1e9:ib)}).forEach(k=>{const se=sess[k];se.evals.sort((x,y)=>x.id-y.id);c.sessions.push(se)});
-    delete c.sessOrder;
-    const tr=it['tour:'+c.id];if(tr){c.tour={started:tr.started,pools:(tr.pools||[]).map(p=>Object.assign({},p,JSON.parse(JSON.stringify(it['pool:'+c.id+':'+p.id]||{matches:[],clock:{}}))))}}
-    if(!c.sessions.length)c.sessions.push(newSessionFor(c));
-    const pc=prev&&prev.classes.find(x=>x.id===c.id);c.cur=pc?Math.min(pc.cur||0,c.sessions.length-1):c.sessions.length-1;c.tab=pc?pc.tab:'seance';
-  });
-  const order=(meta.order||[]).filter(id=>classes[id]).concat(Object.keys(classes).filter(id=>!(meta.order||[]).includes(id)));
-  const out={school:meta.school||'',classes:order.map(id=>classes[id]),cc:0};
-  if(!out.classes.length)out.classes.push(newClass('Ma classe'));
-  const prevId=prev&&prev.classes[prev.cc]&&prev.classes[prev.cc].id;const i=out.classes.findIndex(c=>c.id===prevId);out.cc=i<0?0:i;
-  return out;
+function unflattenClass(it,cid,prev){
+  const cl=JSON.parse(JSON.stringify(it['class:'+cid]||{name:'Classe',students:[],teams:[],settings:{matchMin:5,courts:2,circuits:2}}));cl.id=cid;
+  const order=cl.sessOrder||[];delete cl.sessOrder;const sess={};
+  Object.keys(it).filter(k=>k.startsWith('sess:'+cid+':')).forEach(k=>{const id=k.split(':')[2];const se=JSON.parse(JSON.stringify(it[k]));se.fil=Object.assign({sched:null,ri:0},se.fil||{});se.fil.recs=[];se.bilan={};se.evals=[];sess[id]=se});
+  Object.keys(it).sort().forEach(k=>{const p=k.split(':');if(p[1]!==cid)return;const v=it[k];const se=sess[p[2]];if(!se)return;
+    if(p[0]==='recs')se.fil.recs.push(...JSON.parse(JSON.stringify(v)));else if(p[0]==='bil')se.bilan[p[3]]=JSON.parse(JSON.stringify(v));else if(p[0]==='ev')se.evals.push(JSON.parse(JSON.stringify(v)))});
+  cl.sessions=Object.keys(sess).sort((a,b)=>{const ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?1e9:ia)-(ib<0?1e9:ib)}).map(id=>{sess[id].evals.sort((x,y)=>x.id-y.id);return sess[id]});
+  if(!cl.sessions.length){const prevS=S;S=cl;cl.sessions.push(newSession('diag'));S=prevS}
+  const tr=it['tour:'+cid];if(tr)cl.tour={started:tr.started,pools:(tr.pools||[]).map(p=>Object.assign({},p,JSON.parse(JSON.stringify(it['pool:'+cid+':'+p.id]||{matches:[],clock:{}}))))};
+  cl.cur=prev?Math.min(prev.cur||0,cl.sessions.length-1):cl.sessions.length-1;cl.tab=prev?prev.tab:'seance';cl.online=prev?prev.online:null;cl.seq=cl.seq||1;
+  return cl;
 }
-function newSessionFor(c){const prev=S;S=c;const se=newSession('diag');S=prev;return se}
-function loadSyncCache(){try{const d=JSON.parse(localStorage.getItem(SKEY)||'{}');SYNC.synced=d.synced||{};SYNC.uid=d.uid||null}catch(e){}}
-function saveSyncCache(){try{localStorage.setItem(SKEY,JSON.stringify({synced:SYNC.synced,uid:SYNC.user&&SYNC.user.id}))}catch(e){}}
-function setSync(st,err){SYNC.state=st;SYNC.err=err||'';const el=document.getElementById('syncdot');if(el){el.className='syncdot '+st;el.textContent=syncLabel()}}
-function syncLabel(){return {local:'Cet appareil seulement',ok:'Synchronisé',busy:'Envoi…',off:'Hors ligne · en attente'}[SYNC.state]||''}
-function schedulePush(){if(!SYNC.user)return;clearTimeout(SYNC.timer);setSync('busy');SYNC.timer=setTimeout(pushNow,400)}
-async function pushNow(){
-  if(!SYNC.user)return;const it=flatten(R);const up=[],del=[];
-  Object.entries(it).forEach(([k,v])=>{const j=JSON.stringify(v);if(SYNC.synced[k]!==j)up.push({key:k,data:v,j})});
-  Object.keys(SYNC.synced).forEach(k=>{if(!(k in it))del.push(k)});
-  if(!up.length&&!del.length){setSync('ok');return}
-  try{
-    if(up.length){const {error}=await SYNC.client.from('items').upsert(up.map(x=>({user_id:SYNC.user.id,key:x.key,data:x.data,updated_at:new Date().toISOString()})));if(error)throw error;up.forEach(x=>SYNC.synced[x.key]=x.j)}
-    if(del.length){const {error}=await SYNC.client.from('items').delete().eq('user_id',SYNC.user.id).in('key',del);if(error)throw error;del.forEach(k=>delete SYNC.synced[k])}
-    saveSyncCache();setSync('ok');
-  }catch(e){setSync('off',e.message);clearTimeout(SYNC.timer);SYNC.timer=setTimeout(pushNow,5000)}
+function loadSync(){try{const d=JSON.parse(localStorage.getItem(SKEY)||'{}');SYNC.synced=d.synced||{};SYNC.since=d.since||{}}catch(e){}}
+function saveSync(){try{localStorage.setItem(SKEY,JSON.stringify({synced:SYNC.synced,since:SYNC.since}))}catch(e){}}
+function setState(cid,st,err){SYNC.state[cid]={st,err:err||''};const el=document.getElementById('syncdot');if(el&&S&&S.id===cid){el.className='syncdot '+st;el.textContent=stLabel(st)}}
+const stLabel=st=>({ok:'En ligne · à jour',busy:'Envoi…',off:'Hors ligne · en attente'}[st]||'');
+function schedulePush(){if(!SB_ON||!R.classes.some(c=>c.online))return;clearTimeout(SYNC.timer);if(S&&S.online)setState(S.id,'busy');SYNC.timer=setTimeout(pushAll,350)}
+async function pushClass(c){
+  const it=flattenClass(c);const sy=SYNC.synced[c.id]=SYNC.synced[c.id]||{};const up={},del=[];
+  Object.entries(it).forEach(([k,v])=>{if(sy[k]!==JSON.stringify(v))up[k]=v});Object.keys(sy).forEach(k=>{if(!(k in it))del.push(k)});
+  if(!Object.keys(up).length&&!del.length){setState(c.id,'ok');return}
+  try{await rpc('sp_push',{p_slug:c.online.slug,p_code:c.online.code,p_items:up,p_deleted:del});Object.entries(up).forEach(([k,v])=>sy[k]=JSON.stringify(v));del.forEach(k=>delete sy[k]);saveSync();setState(c.id,'ok')}
+  catch(e){setState(c.id,'off',errTxt(e));clearTimeout(SYNC.timer);SYNC.timer=setTimeout(pushAll,5000)}
 }
-function applyRemote(k,v,deleted){
-  const j=deleted?undefined:JSON.stringify(v);if(SYNC.synced[k]===j)return;
-  const it=flatten(R);
-  if(deleted){delete it[k];delete SYNC.synced[k]}else{it[k]=v;SYNC.synced[k]=j}
-  saveSyncCache();rebuild(it);
+async function pushAll(){for(const c of R.classes.filter(c=>c.online))await pushClass(c)}
+async function pullClass(c){
+  if(!c.online||SYNC.busy)return;const since=SYNC.since[c.id];
+  let d;try{d=await rpc('sp_pull',{p_slug:c.online.slug,p_code:c.online.code,p_since:since?new Date(new Date(since).getTime()-3000).toISOString():null})}catch(e){setState(c.id,'off',errTxt(e));return}
+  SYNC.since[c.id]=d.until;const sy=SYNC.synced[c.id]=SYNC.synced[c.id]||{};const local=flattenClass(c);let changed=false;
+  Object.entries(d.items||{}).forEach(([k,v])=>{const j=v===null?undefined:JSON.stringify(v);if(sy[k]===j)return;
+    const lj=k in local?JSON.stringify(local[k]):undefined;const dirty=lj!==sy[k];
+    if(dirty&&lj!==j)return;
+    if(v===null){delete local[k];delete sy[k]}else{local[k]=v;sy[k]=j}changed=true});
+  saveSync();if(SYNC.state[c.id]&&SYNC.state[c.id].st!=='busy')setState(c.id,'ok');
+  if(changed){const i=R.classes.indexOf(c);if(i<0)return;const nc=unflattenClass(local,c.id,c);R.classes[i]=nc;if(S===c)S=nc;try{localStorage.setItem(KEY,JSON.stringify(R))}catch(e){}
+    const a=document.activeElement;if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName))SYNC.pendingRender=true;else render()}
 }
-function rebuild(it){const keepTab=S&&S.tab;R=unflatten(it,R);S=R.classes[R.cc];if(keepTab)S.tab=keepTab;try{localStorage.setItem(KEY,JSON.stringify(R))}catch(e){}
-  const a=document.activeElement;if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)){SYNC.pendingRender=true}else render()}
-document.addEventListener('focusout',()=>{if(SYNC.pendingRender){SYNC.pendingRender=false;setTimeout(()=>{const a=document.activeElement;if(!(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)))render();else SYNC.pendingRender=true},0)}});
-async function startSync(user){
-  SYNC.user=user;SYNC.pseudo=(user.user_metadata&&user.user_metadata.pseudo)||(user.email||'').split('@')[0];
-  loadSyncCache();if(SYNC.uid&&SYNC.uid!==user.id)SYNC.synced={};
-  setSync('busy');
-  let rows=[];try{const {data,error}=await SYNC.client.from('items').select('key,data').eq('user_id',user.id);if(error)throw error;rows=data||[]}catch(e){setSync('off',e.message);return}
-  const server={};rows.forEach(r=>server[r.key]=r.data);
-  const local=flatten(R);
-  if(!rows.length){SYNC.synced={};}
-  else{
-    const merged={};const keys=new Set([...Object.keys(server),...Object.keys(local)]);
-    keys.forEach(k=>{const lj=k in local?JSON.stringify(local[k]):undefined,dirty=SYNC.uid===user.id&&SYNC.synced[k]!==lj;
-      if(dirty&&lj!==undefined)merged[k]=local[k];else if(dirty&&lj===undefined&&!(k in server)){}else if(k in server)merged[k]=server[k]});
-    SYNC.synced={};Object.entries(server).forEach(([k,v])=>SYNC.synced[k]=JSON.stringify(v));
-    if(SYNC.uid!==user.id){try{localStorage.setItem(KEY+'-avant-connexion',JSON.stringify(R))}catch(e){}}
-    R=unflatten(merged,R);S=R.classes[R.cc];
-  }
-  saveSyncCache();render();await pushNow();
-  if(SYNC.chan)SYNC.client.removeChannel(SYNC.chan);
-  SYNC.chan=SYNC.client.channel('items-'+user.id).on('postgres_changes',{event:'*',schema:'public',table:'items',filter:'user_id=eq.'+user.id},p=>{
-    if(p.eventType==='DELETE'){const k=p.old&&p.old.key;if(k)applyRemote(k,null,true)}else if(p.new)applyRemote(p.new.key,p.new.data,false)}).subscribe();
+document.addEventListener('focusout',()=>{if(SYNC.pendingRender){setTimeout(()=>{const a=document.activeElement;if(!(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName))){SYNC.pendingRender=false;render()}},0)}});
+async function shareClass(){
+  const school=($('#osch')||{}).value||'',cls=($('#ocls')||{}).value||'',code=($('#ocode')||{}).value||'',code2=($('#ocode2')||{}).value||'';T.onVals={school,cls};
+  if(!school.trim()||!cls.trim()){T.onMsg='Indiquez l’établissement et le nom de la classe.';render();return}
+  if(code.length<4){T.onMsg=ERRS.CODE_COURT;render();return}if(code!==code2){T.onMsg='Les deux codes ne sont pas identiques.';render();return}
+  const slug=slugOf(school,cls);T.onBusy=true;render();
+  try{const id=await rpc('sp_create',{p_slug:slug,p_school:school.trim(),p_class:cls.trim(),p_code:code});
+    const old=S.id;const nid2='o'+String(id).replace(/-/g,'');
+    S.id=nid2;S.name=cls.trim();S.online={slug,school:school.trim(),code};R.school=R.school||school.trim();
+    delete SYNC.synced[old];SYNC.synced[nid2]={};SYNC.since[nid2]=null;await pushClass(S);T.onMode=null;T.onMsg='';T.onVals=null;
+  }catch(e){T.onMsg=errTxt(e)}
+  T.onBusy=false;commit();
 }
-const pseudoEmail=p=>p.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9._-]+/g,'-')+'@enseignant.scoreparlant.app';
-async function authDo(kind){
-  const p=($('#ap')||{}).value||'',w=($('#aw')||{}).value||'';T.authMsg='';
-  if(p.trim().length<3){T.authMsg='Le pseudonyme doit faire au moins 3 caractères.';render();return}
-  if(w.length<6){T.authMsg='Le mot de passe doit faire au moins 6 caractères.';render();return}
-  T.authBusy=true;render();
-  try{
-    const res=kind==='up'?await SYNC.client.auth.signUp({email:pseudoEmail(p),password:w,options:{data:{pseudo:p.trim()}}}):await SYNC.client.auth.signInWithPassword({email:pseudoEmail(p),password:w});
-    if(res.error)throw res.error;
-    if(!res.data.session){T.authMsg='Compte créé, mais la connexion n’a pas pu se faire. Vérifiez que la confirmation par e-mail est désactivée dans Supabase.';}
-    else{T.gate=false;await startSync(res.data.user)}
-  }catch(e){const m=(e.message||'').toLowerCase();T.authMsg=m.includes('already')?'Ce pseudonyme est déjà pris. Choisissez-en un autre, ou connectez-vous.':m.includes('invalid login')?'Pseudonyme ou mot de passe incorrect.':'Connexion impossible : '+e.message}
-  T.authBusy=false;render();
+async function openClass(){
+  const school=($('#osch')||{}).value||'',cls=($('#ocls')||{}).value||'',code=($('#ocode')||{}).value||'';T.onVals={school,cls};
+  if(!school.trim()||!cls.trim()||!code){T.onMsg='Indiquez l’établissement, la classe et le code.';render();return}
+  const slug=slugOf(school,cls);const ex=R.classes.find(c=>c.online&&c.online.slug===slug);if(ex){useClass(R.classes.indexOf(ex));T.onMode=null;commit();return}
+  T.onBusy=true;render();
+  try{const d=await rpc('sp_pull',{p_slug:slug,p_code:code,p_since:null});
+    const items={};Object.entries(d.items||{}).forEach(([k,v])=>{if(v!==null)items[k]=v});
+    const ck=Object.keys(items).find(k=>k.startsWith('class:'));const cid=ck?ck.slice(6):'o'+Date.now();
+    const c=unflattenClass(items,cid,null);c.online={slug,school:school.trim(),code};c.tab='classe';
+    SYNC.synced[cid]={};Object.entries(items).forEach(([k,v])=>SYNC.synced[cid][k]=JSON.stringify(v));SYNC.since[cid]=d.until;saveSync();
+    const blank=R.classes.length===1&&!R.classes[0].online&&!R.classes[0].students.length;
+    if(blank)R.classes=[c];else R.classes.push(c);useClass(R.classes.indexOf(c));T.onMode=null;T.onMsg='';T.onVals=null;
+  }catch(e){T.onMsg=errTxt(e)}
+  T.onBusy=false;commit();
 }
-async function logout(){try{if(SYNC.chan)SYNC.client.removeChannel(SYNC.chan);await SYNC.client.auth.signOut()}catch(e){}SYNC.user=null;SYNC.synced={};saveSyncCache();setSync('local');
-  try{localStorage.removeItem(KEY)}catch(e){}R={classes:[newClass('Ma classe')],cc:0,school:''};S=R.classes[0];T.gate=true;render()}
-function authForm(){return `<div class="authf"><label for="ap">Pseudonyme</label><input type="text" id="ap" autocomplete="username" placeholder="ex. : cdeanaz">
-  <label for="aw">Mot de passe</label><input type="password" id="aw" autocomplete="current-password" placeholder="6 caractères minimum">
-  <div class="row" style="margin-top:6px"><button class="btn primary" data-action="login" ${T.authBusy?'disabled':''}>Se connecter</button><button class="btn" data-action="signup" ${T.authBusy?'disabled':''}>Créer mon compte</button></div>
-  ${T.authMsg?`<p class="err">${esc(T.authMsg)}</p>`:''}</div>`}
-function vGate(){return `<div class="gate"><section class="card"><h2 class="t">Espace enseignant</h2>
-  <p style="margin:0 0 14px">Connectez-vous pour retrouver vos classes sur tous vos écrans : ordinateur, tablette et téléphones. Les élèves, les équipes et les scores se mettent à jour en direct d’un écran à l’autre.</p>
-  ${authForm()}
-  <p class="note">Réservé aux enseignants. Chaque compte ne voit que ses propres classes. Sur une tablette confiée aux élèves pour la marque, connectez-vous avec votre compte.</p>
-  <div class="row" style="margin-top:12px"><button class="btn small" data-action="nogate">Continuer sans compte (cet appareil seulement)</button></div></section></div>`}
-function accountCard(){
+async function deleteOnline(){
+  const code=($('#odel')||{}).value||'';if(code!==S.online.code){T.onMsg='Code incorrect : la classe n’est pas supprimée.';render();return}
+  try{await rpc('sp_delete',{p_slug:S.online.slug,p_code:code});}catch(e){T.onMsg=errTxt(e);render();return}
+  forgetClass();
+}
+function forgetClass(){delete SYNC.synced[S.id];delete SYNC.since[S.id];saveSync();R.classes.splice(R.cc,1);if(!R.classes.length)R.classes.push(newClass('Ma classe'));useClass(0);T.onMode=null;T.onMsg='';commit()}
+function onlineCard(){
   if(!SB_ON)return '';
-  if(SYNC.user)return `<section class="card"><h2 class="t">Mon compte</h2><p style="margin:0">Connecté en tant que <b>${esc(SYNC.pseudo)}</b>. <span class="syncdot ${SYNC.state}">${syncLabel()}</span></p>
-    <p class="note">Toutes vos classes sont enregistrées en ligne et partagées entre vos écrans connectés à ce compte.${SYNC.err?` Dernière erreur : ${esc(SYNC.err)}`:''}</p>
-    <div class="row" style="margin-top:10px"><button class="btn small" data-action="logout">${T.confirm==='logout'?'Confirmer : se déconnecter de cet appareil':'Se déconnecter'}</button></div></section>`;
-  return `<section class="card"><h2 class="t">Mon compte</h2><p style="margin:0 0 10px">Vous travaillez sur cet appareil seulement. Connectez-vous pour partager vos classes entre plusieurs écrans.</p>${authForm()}<p class="note">À la première connexion, les classes de cet appareil sont envoyées dans votre compte.</p></section>`;
+  const c=S;const st=c.online?(SYNC.state[c.id]||{st:'ok'}):null;
+  const form=(mode)=>`<div class="authf" style="margin-top:10px">
+    <label for="osch">Établissement</label><input type="text" id="osch" value="${esc((T.onVals&&T.onVals.school)||(mode==='share'?(R.school||''):''))}" placeholder="ex. : Lycée Anna de Noailles Bucarest" autocomplete="off">
+    <label for="ocls">Classe</label><input type="text" id="ocls" value="${esc((T.onVals&&T.onVals.cls)||(mode==='share'?c.name:''))}" placeholder="ex. : 3e A" autocomplete="off">
+    <label for="ocode">Code secret de la classe</label><input type="password" id="ocode" placeholder="4 caractères minimum" autocomplete="off">
+    ${mode==='share'?`<label for="ocode2">Retapez le code</label><input type="password" id="ocode2" autocomplete="off">`:''}
+    <div class="row" style="margin-top:6px"><button class="btn primary" data-action="${mode==='share'?'doshare':'doopen'}" ${T.onBusy?'disabled':''}>${mode==='share'?'Mettre la classe en ligne':'Ouvrir la classe'}</button><button class="btn small" data-action="oncancel">Annuler</button></div>
+    ${mode==='share'?'<p class="note">Notez bien le code : sans lui, personne (pas même vous) ne peut rouvrir la classe.</p>':''}</div>`;
+  let h=`<section class="card" style="margin-bottom:18px"><h2 class="t">Classe en ligne · plusieurs écrans</h2>`;
+  if(c.online){h+=`<p style="margin:0"><b>${esc(c.online.school)} · ${esc(c.name)}</b> <span class="syncdot ${st.st}">${stLabel(st.st)}</span></p>
+    <p class="note">Sur une tablette ou un téléphone : ouvrez l’application, touchez « Ouvrir une classe en ligne », puis tapez l’établissement, la classe et le code. Tout se met à jour sur tous les écrans.${st.err?` <b>${esc(st.err)}</b>`:''}</p>
+    <div class="row" style="margin-top:10px"><button class="btn small" data-action="onopen">Ouvrir une autre classe en ligne</button><button class="btn small" data-action="forget">${T.confirm==='forget'?'Confirmer : retirer de cet appareil':'Retirer de cet appareil'}</button><button class="btn small danger" data-action="ondelmode">Supprimer la classe en ligne</button></div>
+    ${T.onMode==='del'?`<div class="authf" style="margin-top:10px"><label for="odel">Pour supprimer définitivement la classe sur tous les écrans, tapez son code</label><input type="password" id="odel" autocomplete="off"><div class="row"><button class="btn small danger" data-action="dodelete">Supprimer définitivement</button><button class="btn small" data-action="oncancel">Annuler</button></div></div>`:''}`}
+  else{h+=`<p style="margin:0">Cette classe est enregistrée sur cet appareil seulement.</p>
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-action="onshare">Mettre cette classe en ligne</button><button class="btn" data-action="onopen">Ouvrir une classe en ligne</button></div>
+    <p class="note">En ligne, la classe est protégée par un code : seuls ceux qui le connaissent la voient, la modifient ou la suppriment.</p>`}
+  if(T.onMode==='share'||T.onMode==='open')h+=form(T.onMode);
+  if(T.onMsg)h+=`<p class="err">${esc(T.onMsg)}</p>`;
+  return h+`</section>`;
 }
-async function initSync(){
-  if(!SB_ON){setSync('local');return}
-  SYNC.client=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
-  const {data}=await SYNC.client.auth.getSession();
-  if(data&&data.session){T.gate=false;await startSync(data.session.user)}else{T.gate=!localStorage.getItem('score-parlant-nogate');render()}
-  window.addEventListener('online',()=>{if(SYNC.user)pushNow()});
+function initSync(){
+  if(!SB_ON)return;loadSync();
+  const tick2=async()=>{if(document.hidden)return;if(S&&S.online)await pullClass(S)};
+  SYNC.poll=setInterval(tick2,2500);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){tick2();pushAll()}});
+  window.addEventListener('online',()=>pushAll());
+  if(R.classes.some(c=>c.online)){pushAll();tick2()}
 }
 
 function boot(data){if(data&&data.R){R=data.R;S=R.classes[R.cc]}ensureIds();render();initSync()}
