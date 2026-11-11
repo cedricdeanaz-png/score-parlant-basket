@@ -607,7 +607,7 @@ try{localStorage.setItem('__sp_test','1');STORAGE_OK=localStorage.getItem('__sp_
 R.cc=Math.min(R.cc||0,R.classes.length-1);if(R.school===undefined||R.school==='Lycée Français Anna de Noailles')R.school='';S=R.classes[R.cc];
 const T={confirm:null,errs:{},fiche:null,selTeam:null,showTable:false,evalSel:{},copied:''};
 function save(){try{localStorage.setItem(KEY,JSON.stringify(R))}catch(e){}if(typeof schedulePush==='function')schedulePush()}
-function useClass(i){R.cc=i;S=R.classes[i];T.fiche=null;T.selTeam=null}
+function useClass(i){R.cc=i;S=R.classes[i];T.fiche=null;T.selTeam=null;T.showCode=false}
 const sess=()=>S.sessions[S.cur];
 const team=id=>S.teams.find(t=>t.id===id);
 const tname=id=>{const t=team(id);return t?t.name:'?'};
@@ -1129,6 +1129,7 @@ document.addEventListener('click',e=>{
     case 'tab':S.tab=b.dataset.k;T.fiche=null;break;
     case 'onshare':T.onMode='share';T.onMsg='';T.onDraft=null;break;
     case 'onopen':T.onMode='open';T.onMsg='';T.onDraft=null;break;
+    case 'showcode':T.showCode=!T.showCode;break;
     case 'ondelmode':T.onMode='del';T.onMsg='';T.onDraft=null;break;
     case 'oncancel':T.onMode=null;T.onMsg='';T.onVals=null;T.onDraft=null;break;
     case 'doshare':shareClass();return;
@@ -1359,15 +1360,16 @@ function onlineCard(){
   const form=(mode)=>`<div class="authf" style="margin-top:10px">
     <label for="osch">Établissement</label><input type="text" id="osch" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc((T.onDraft&&T.onDraft.osch)||(T.onVals&&T.onVals.school)||(mode==='share'?(R.school||''):''))}" placeholder="ex. : Lycée Anna de Noailles Bucarest" autocomplete="off">
     <label for="ocls">Classe</label><input type="text" id="ocls" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc((T.onDraft&&T.onDraft.ocls)||(T.onVals&&T.onVals.cls)||(mode==='share'?c.name:''))}" placeholder="ex. : 3e A" autocomplete="off">
-    <label for="ocode">Code secret de la classe</label><input type="password" id="ocode" value="${esc((T.onDraft||{}).ocode||'')}" autocapitalize="off" placeholder="4 caractères minimum" autocomplete="off">
-    ${mode==='share'?`<label for="ocode2">Retapez le code</label><input type="password" id="ocode2" value="${esc((T.onDraft||{}).ocode2||'')}" autocapitalize="off" autocomplete="off">`:''}
+    <label for="ocode">Code secret de la classe</label><input type="text" id="ocode" name="sp-classcode" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" value="${esc((T.onDraft||{}).ocode||'')}" autocapitalize="off" placeholder="4 caractères minimum, ex. : basket3e">
+    ${mode==='share'?`<label for="ocode2">Retapez le code</label><input type="text" id="ocode2" name="sp-classcode2" autocorrect="off" spellcheck="false" data-lpignore="true" value="${esc((T.onDraft||{}).ocode2||'')}" autocapitalize="off" autocomplete="off">`:''}
     <div class="row" style="margin-top:6px"><button class="btn primary" data-action="${mode==='share'?'doshare':'doopen'}" ${T.onBusy?'disabled':''}>${mode==='share'?'Mettre la classe en ligne':'Ouvrir la classe'}</button><button class="btn small" data-action="oncancel">Annuler</button></div>
     ${mode==='share'?'<p class="note">Notez bien le code : sans lui, personne (pas même vous) ne peut rouvrir la classe.</p>':''}</div>`;
   let h=`<section class="card" style="margin-bottom:18px"><h2 class="t">Classe en ligne · plusieurs écrans</h2>`;
   if(c.online){h+=`<p style="margin:0"><b>${esc(c.online.school)} · ${esc(c.name)}</b> <span class="syncdot ${st.st}">${stLabel(st.st)}</span></p>
     <p class="note">Sur une tablette ou un téléphone : ouvrez l’application, touchez « Ouvrir une classe en ligne », puis tapez l’établissement, la classe et le code. Tout se met à jour sur tous les écrans.${st.err?` <b>${esc(st.err)}</b>`:''}</p>
-    <div class="row" style="margin-top:10px"><button class="btn small" data-action="onopen">Ouvrir une autre classe en ligne</button><button class="btn small" data-action="forget">${T.confirm==='forget'?'Confirmer : retirer de cet appareil':'Retirer de cet appareil'}</button><button class="btn small danger" data-action="ondelmode">Supprimer la classe en ligne</button></div>
-    ${T.onMode==='del'?`<div class="authf" style="margin-top:10px"><label for="odel">Pour supprimer définitivement la classe sur tous les écrans, tapez son code</label><input type="password" id="odel" value="${esc((T.onDraft||{}).odel||'')}" autocapitalize="off" autocomplete="off"><div class="row"><button class="btn small danger" data-action="dodelete">Supprimer définitivement</button><button class="btn small" data-action="oncancel">Annuler</button></div></div>`:''}`}
+    <div class="row" style="margin-top:10px"><button class="btn small" data-action="onopen">Ouvrir une autre classe en ligne</button><button class="btn small" data-action="forget">${T.confirm==='forget'?'Confirmer : retirer de cet appareil':'Retirer de cet appareil'}</button><button class="btn small" data-action="showcode">${T.showCode?'Masquer le code':'Voir le code'}</button><button class="btn small danger" data-action="ondelmode">Supprimer la classe en ligne</button></div>
+    ${T.showCode?`<p style="margin:10px 0 0">Code de cette classe : <b style="font-size:20px;letter-spacing:.06em">${esc(c.online.code)}</b> <span class="muted">(visible seulement sur un appareil qui a déjà ouvert la classe)</span></p>`:''}
+    ${T.onMode==='del'?`<div class="authf" style="margin-top:10px"><label for="odel">Pour supprimer définitivement la classe sur tous les écrans, tapez son code</label><input type="text" id="odel" name="sp-delcode" autocorrect="off" spellcheck="false" data-lpignore="true" value="${esc((T.onDraft||{}).odel||'')}" autocapitalize="off" autocomplete="off"><div class="row"><button class="btn small danger" data-action="dodelete">Supprimer définitivement</button><button class="btn small" data-action="oncancel">Annuler</button></div></div>`:''}`}
   else{h+=`<p style="margin:0">Cette classe est enregistrée sur cet appareil seulement.</p>
     <div class="row" style="margin-top:10px"><button class="btn primary" data-action="onshare">Mettre cette classe en ligne</button><button class="btn" data-action="onopen">Ouvrir une classe en ligne</button></div>
     <p class="note">En ligne, la classe est protégée par un code : seuls ceux qui le connaissent la voient, la modifient ou la suppriment.</p>`}
